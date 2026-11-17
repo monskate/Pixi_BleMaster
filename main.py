@@ -62,7 +62,7 @@ if __name__ == '__main__':
     gc.enable()
     power.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=power_callback)
     icrobot.send_nocheck(bytearray([0xaa,0x55,0xfe,0xfe,0xfe,0xfe]))
-
+    
     #Startup sound
     icrobot.speaker.play_music_until_done("/flash/startup.wav")
 
@@ -86,13 +86,10 @@ if __name__ == '__main__':
                 uid = icrobot.nfc.read_uid()
                 if uid != "no card!" and uid != last_btuid:
                     last_btuid = uid
-                    n1,n2 = icrobot.nfc.read_block(1)
-                    
+                    n1,n2 = icrobot.nfc.read_block(1)  
                     name = "ch{:02X}{:02X}".format(n1, n2)
-
                     print(name)
-                    ble.name = name
-                    
+                    ble.name = name  
                 ble.process_pending_connection()
             #Magnetic Programming Data Processing
             if ble.flag:

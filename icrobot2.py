@@ -110,7 +110,14 @@ class Power:
         """
         self.power[3:] = [0x00] * 2
         self.power[3] = 0xfe
-        send_command(self.power)   
+        send_command(self.power)  
+    def get_version(self):
+        """
+        get version
+        """
+        self.power[3:] = [0x00] * 2
+        self.power[3] = 0xfc
+        send_command(self.power)  
     def set_status(self,status):
         """
         Set status, no need to change
@@ -661,8 +668,6 @@ class Taillight:
             raise ValueError("rgb() requires 3 or 15 parameters")
 
         send_command(color)
-
-
 taillight = Taillight()       
 
 #Display control function
@@ -1150,10 +1155,7 @@ gun = Gun()
 # Bluetooth central connection settings
 TARGET_SERVICE_UUID = bluetooth.UUID("7e400001-b5a3-f393-e0a9-e50e24dcca9e")
 TARGET_CHAR_UUID = bluetooth.UUID("7e400002-b5a3-f393-e0a9-e50e24dcca9e")
-TARGET_SERVICE_UUID_BYTES = bytes((
-    0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0,
-    0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x7E,
-))
+TARGET_SERVICE_UUID_BYTES = bytes((0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0,0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x7E,))
 
 
 class ESP32S3_BLE:
