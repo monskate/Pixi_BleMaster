@@ -1,0 +1,11 @@
+{
+    "color_flag": false,
+
+    "red": "forward",
+
+    "yellow": "left",
+
+    "green": "right",
+
+    "blue": "backward"
+}

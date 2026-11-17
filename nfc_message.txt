@@ -1,0 +1,27 @@
+{
+    "nfc_flag": false,
+
+    "red1": "forward",
+    "red2": "forward3",
+    "red3": "backward",
+    "red4": "left",
+
+    "yellow1": "right",
+    "yellow2": "wait",
+    "yellow3": "wait_light",
+    "yellow4": "melody",
+
+    "green1": "speaker",
+    "green2": "rainbow",
+    "green3": "light",
+    "green4": "fan",
+    "green5": "shake",
+    "green6": "happy",
+
+    "blue1": "sad",
+    "blue2": "crying",
+    "blue3": "backward",
+    "blue4": "left",
+    "blue5": "right",
+    "blue6": "wait"
+}

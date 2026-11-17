@@ -1,0 +1,15 @@
+{
+    "forward": [50, 15],
+    "left": [50, 90],
+    "right": [50, 90],
+    "backward": [50, 15],
+    "forward3": [50, 45],
+    "wait": 4,
+    "wait_light": [50,2],
+    "melody": "car.wav",
+    "speaker": "im_Pixi.wav",
+    "light": [255, 255, 255, 255, -1],
+    "rainbow": 6,
+    "fan": [1, 100, 3],
+    "shake": [1,2],
+}
