@@ -643,13 +643,27 @@ motor = Motor()
 
 #Tail Light Control Function
 class Taillight:
-    def rgb(self,r,g,b):
+    def rgb(self, *args):
         """
         Set the color of the tail light
+
+        3 parameters: Set all tail lights to the same color
+        15 parameters: Set each of the 5 tail lights independently
         """
-        color = [0xaa, 0x55, 0x04, r,g,b]
-        send_command(color)    
-taillight = Taillight()        
+        if len(args) == 3:
+            r, g, b = args
+            color = [0xaa, 0x55, 0x04, r, g, b]
+
+        elif len(args) == 15:
+            color = [0xaa, 0x55, 0x04] + list(args)
+
+        else:
+            raise ValueError("rgb() requires 3 or 15 parameters")
+
+        send_command(color)
+
+
+taillight = Taillight()       
 
 #Display control function
 class Display:
@@ -1133,127 +1147,216 @@ class Gun:
                     break  # 发生异常直接退出
 gun = Gun()
 
-#Bluetooth connection settings
-class ESP32S3_BLE():
-    def __init__(self, name):
+# Bluetooth central connection settings
+TARGET_SERVICE_UUID = bluetooth.UUID("7e400001-b5a3-f393-e0a9-e50e24dcca9e")
+TARGET_CHAR_UUID = bluetooth.UUID("7e400002-b5a3-f393-e0a9-e50e24dcca9e")
+TARGET_SERVICE_UUID_BYTES = bytes((
+    0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0,
+    0x93, 0xF3, 0xA3, 0xB5, 0x01, 0x00, 0x40, 0x7E,
+))
+
+
+class ESP32S3_BLE:
+    def __init__(self, name=None):
         self.name = name
         self.ble = bluetooth.BLE()
         self.ble.active(True)
-        self.ble.config(gap_name=name, mtu=517)
-        self.connections = set()
+        self.ble.config(mtu=517)
         self.ble.irq(self.ble_irq)
-        self.register()
-        self.advertiser()
-        self.BLE_MESSAGE = ''
-
-        self.disconnected()
+        self.connections = set()
+        self.rx_queue = []
         self.flag = False
         self.send_flag = False
-        self.rx_queue = [] 
+        self.conn_handle = None
+        self.service_start_handle = None
+        self.service_end_handle = None
+        self.char_handle = None
+        self.cccd_handle = None
+        self.scan_devices = {}
+        self.connecting = False
+        self.pending_connection = None
+        print("扫描目标服务设备，待连接名称:", self.name)
+        self.ble.gap_scan(0, 30000, 30000)
+
+    @staticmethod
+    def _advertisement_name(adv_data):
+        offset = 0
+        while offset + 1 < len(adv_data):
+            field_len = adv_data[offset]
+            if field_len == 0 or offset + field_len + 1 > len(adv_data):
+                break
+            field_type = adv_data[offset + 1]
+            if field_type in (0x08, 0x09):
+                try:
+                    return bytes(adv_data[offset + 2:offset + 1 + field_len]).decode()
+                except Exception:
+                    return ""
+            offset += field_len + 1
+        return ""
+
+    @staticmethod
+    def _advertises_target_service(adv_data):
+        offset = 0
+        while offset + 1 < len(adv_data):
+            field_len = adv_data[offset]
+            if field_len == 0 or offset + field_len + 1 > len(adv_data):
+                break
+            field_type = adv_data[offset + 1]
+            if field_type in (0x06, 0x07):
+                field_end = offset + 1 + field_len
+                for uuid_offset in range(offset + 2, field_end, 16):
+                    if adv_data[uuid_offset:uuid_offset + 16] == TARGET_SERVICE_UUID_BYTES:
+                        return True
+            offset += field_len + 1
+        return False
+
+    def _start_scan(self):
+        self.conn_handle = None
+        self.service_start_handle = None
+        self.service_end_handle = None
+        self.char_handle = None
+        self.cccd_handle = None
+        self.flag = False
+        self.scan_devices = {}
+        self.connecting = False
+        self.ble.gap_scan(0, 30000, 30000)
 
     def connected(self):
-        """
-        Bluetooth connection successful sound will play. 
-        If you want to change it, 
-        upload the audio (A WAV audio file with a 16 kHz sample rate, mono channel, and 16-bit depth (PCM format).) 
-        to the flash_e folder and change the parameter to the corresponding file name.
-        """
         speaker.play_music_until_done('flash/ble_success.wav')
         self.flag = True
-        print("已连接")
+        print("目标服务和特征已连接")
 
     def disconnected(self):
-        """
-        Bluetooth disconnection sound will play.
-        If you want to change it, 
-        upload the audio (A WAV audio file with a 16 kHz sample rate, mono channel, and 16-bit depth (PCM format).) 
-        to the flash_e folder and change the parameter to the corresponding file name.
-        """
-        speaker.play_music_until_done('flash/ble_dis.wav')
         self.flag = False
-        print("断开连接")
+        print("连接断开，重新扫描")
+        speaker.play_music_until_done('flash/ble_dis.wav')
+        self._start_scan()
+
+    def process_pending_connection(self):
+        if self.pending_connection is None:
+            return
+        addr_type, addr = self.pending_connection
+        self.pending_connection = None
+        try:
+            self.ble.gap_scan(None)
+            self.ble.gap_connect(addr_type, addr, 20000)
+        except Exception as e:
+            print("BLE连接启动失败:", e)
+            self._start_scan()
 
     def ble_irq(self, event, data):
-        global start
         try:
-            if event == 1:
+            if event == 5:  # IRQ_SCAN_RESULT
+                addr_type, addr, _, rssi, adv_data = data
+                addr_bytes = bytes(addr)
+                device = self.scan_devices.get(addr_bytes)
+                if device is None:
+                    device = [addr_type, addr, "", False]
+                    self.scan_devices[addr_bytes] = device
+                device_name = self._advertisement_name(adv_data)
+                if device_name:
+                    device[2] = device_name
+                if self._advertises_target_service(adv_data) and not device[3]:
+                    device[3] = True
+                    print("发现目标服务设备:", device[2] or "<名称待扫描响应>", addr_bytes, "RSSI:", rssi)
+                if self.name and device[3] and device[2] == self.name and self.conn_handle is None and not self.connecting:
+                    print("按保存的名称选择设备:", self.name)
+                    self.connecting = True
+                    self.pending_connection = (device[0], bytes(device[1]))
+            elif event == 6:  # IRQ_SCAN_DONE
+                if self.conn_handle is None and not self.connecting:
+                    self._start_scan()
+            elif event == 7:  # IRQ_PERIPHERAL_CONNECT
                 conn_handle, _, _ = data
-                print("已连接，连接句柄:", conn_handle)
+                self.conn_handle = conn_handle
+                self.connecting = False
                 self.connections.add(conn_handle)
-                self.connected()
-            elif event == 2:
+                self.ble.gattc_discover_services(conn_handle, TARGET_SERVICE_UUID)
+            elif event == 8:  # IRQ_PERIPHERAL_DISCONNECT
                 conn_handle, _, _ = data
-                print("断开连接，连接句柄:", conn_handle)
-                if conn_handle in self.connections:
-                    self.connections.remove(conn_handle)
+                self.connections.discard(conn_handle)
                 self.disconnected()
-                self.advertiser()
-            elif event == 3:
-                # 读取客户端发送的数据
-                conn_handle, attr_handle = data
-                if attr_handle == self.rx1_handle:
-                    buffer = self.ble.gatts_read(self.rx1_handle)
-                    print(buffer)
-                    self.rx_queue.append(buffer[5])
-            elif event == 21:  # MTU 协商完成
-                conn_handle, mtu = data
+            elif event == 9:  # IRQ_GATTC_SERVICE_RESULT
+                conn_handle, start_handle, end_handle, uuid = data
+                if conn_handle == self.conn_handle and uuid == TARGET_SERVICE_UUID:
+                    self.service_start_handle = start_handle
+                    self.service_end_handle = end_handle
+                    print("目标服务句柄:", start_handle, end_handle)
+            elif event == 10:  # IRQ_GATTC_SERVICE_DONE
+                if self.service_start_handle is None:
+                    print("设备未提供目标服务")
+                    self.ble.gap_disconnect(self.conn_handle)
+                else:
+                    self.ble.gattc_discover_characteristics(
+                        self.conn_handle,
+                        self.service_start_handle,
+                        self.service_end_handle,
+                        TARGET_CHAR_UUID,
+                    )
+            elif event == 11:  # IRQ_GATTC_CHARACTERISTIC_RESULT
+                conn_handle, _, value_handle, properties, uuid = data
+                if conn_handle == self.conn_handle and uuid == TARGET_CHAR_UUID:
+                    self.char_handle = value_handle
+                    self.char_properties = properties
+                    print("目标特征句柄/属性:", value_handle, hex(properties))
+            elif event == 12:  # IRQ_GATTC_CHARACTERISTIC_DONE
+                if self.char_handle is None:
+                    print("设备未提供目标特征")
+                    self.ble.gap_disconnect(self.conn_handle)
+                elif self.char_properties & 0x10:
+                    self.ble.gattc_discover_descriptors(
+                        self.conn_handle,
+                        self.char_handle + 1,
+                        self.service_end_handle
+                    )
+                else:
+                    self.connected()
+            elif event == 13:  # IRQ_GATTC_DESCRIPTOR_RESULT
+                conn_handle, descriptor_handle, uuid = data
+                print("发现描述符:", descriptor_handle, repr(uuid))
+                if conn_handle == self.conn_handle and uuid == bluetooth.UUID(0x2902):
+                    self.cccd_handle = descriptor_handle
+            elif event == 14:  # IRQ_GATTC_DESCRIPTOR_DONE
+                if self.cccd_handle is None:
+                    self.cccd_handle = self.char_handle + 1
+                    print("未匹配到 0x2902，按目标固件布局尝试句柄:", self.cccd_handle)
+                try:
+                    self.ble.gattc_write(self.conn_handle, self.cccd_handle, b"\x01\x00", 1)
+                    print("已提交通知订阅，CCCD句柄:", self.cccd_handle)
+                except Exception as e:
+                    print("CCCD写入失败:", e)
+                    print("目标服务和特征已连接，通知功能不可用")
+                    self.connected()
+                else:
+                    self.connected()
+            elif event == 18:  # IRQ_GATTC_NOTIFY
+                conn_handle, value_handle, value = data
+                if conn_handle == self.conn_handle and value_handle == self.char_handle:
+                    print(value)
+                    if value:
+                        self.rx_queue.append(value[5] if len(value) > 5 else value[0])
+            elif event == 21:  # IRQ_MTU_EXCHANGED
+                _, mtu = data
                 self.max_payload = mtu - 3
         except Exception as e:
             print("BLE IRQ处理异常:", e)
 
-    def register(self):
-
-        self.rx1 = (
-            RX1_UUID,
-            bluetooth.FLAG_WRITE | bluetooth.FLAG_NOTIFY,
-        )
-
-        services = (
-            (
-                SERVICE_UUID,
-                (
-                    self.rx1,
-                ),
-            ),
-        )
-
-        handles = self.ble.gatts_register_services(services)
-        self.rx1_handle = handles[0][0]
-
     def send(self, data):
-        # 单个字节（int）
         if isinstance(data, int):
             data = bytes([data])
-        # 多个字节（list/tuple）
         elif isinstance(data, (list, tuple)):
             data = bytes(data)
-        # 已经是 bytes/bytearray
-        elif isinstance(data, (bytes, bytearray)):
-            pass
-        else:
+        elif not isinstance(data, (bytes, bytearray)):
             raise TypeError("send() 仅支持 int, list/tuple[int], bytes/bytearray")
 
-        for conn_handle in list(self.connections):
-            try:
-                if not self.send_flag:
-                    self.send_flag = True
-                    self.ble.gatts_notify(conn_handle, self.rx1_handle, data)
-                    self.send_flag = False
-            except Exception as e:
-                print("发送失败:", e)
-
-    def advertiser(self):
-        # 广播设备名称
-        name = bytes(self.name, 'UTF-8')
-        adv_mode  = bytearray([0x02, 0x01, 0x06])  # BLE flags
-        adv_uuid = bytearray([0x11, 0x07]) + bytearray(SERVICE_UUID)
-        adv_data = adv_mode + adv_uuid
-        # 扫描响应数据 (包含设备名)
-        name = bytes(self.name, 'UTF-8')
-        resp_data = bytearray([len(name) + 1, 0x09]) + name
-
-        # 启动广播，500ms 一次
-        self.ble.gap_advertise(500, adv_data, resp_data=resp_data)
+        if not self.flag or self.conn_handle is None or self.char_handle is None:
+            return False
+        try:
+            self.ble.gattc_write(self.conn_handle, self.char_handle, data, 1)
+            return True
+        except Exception as e:
+            print("发送失败:", e)
+            return False
 
 #Internal function call; no modification required.
 class i2c_device:
@@ -1389,7 +1492,7 @@ class RC522:
         """
         Read data from a specific block of the RFID card
         """
-        return f"{self.card[4]:02d}{self.card[5]:02d}"
+        return self.card[4],self.card[5]
 nfc = RC522()
 
 #Magnetic Programming Mode Custom Action Modification
@@ -1404,7 +1507,7 @@ class BLEMODE_MESSAGE:
         self.wait_light = [50,2] 
         self.melody = "car.wav"
         self.speaker = "im_Pixi.wav"
-        self.light = [255,255,255,255,-1] # Brightness,r,g,b,time
+        self.light = [40,255,255,255,-1] # Brightness,r,g,b,time
         self.rainbow = 6
         self.fan = [1,100,3] # mode,speed,time
         self.shake = [1,2]
@@ -1645,16 +1748,16 @@ class EXE_CODE:
                 speaker.play_music_until_done("/"+lang+"/"+"LED.wav")
             else:
                 colors = [
-                    (255, 0, 255),    # 洋红
-                    (0, 0, 255),      # 蓝
-                    (0, 255, 255),    # 青
-                    (0, 255, 0),      # 绿
-                    (255, 0, 0),      # 红
-                    (255, 80, 0),     # 橙
-                    (255, 0, 120),    # 玫红
-                    (100, 0, 255),    # 紫
-                    (255, 255, 0),    # 黄
-                    (255, 255, 255),  # 白
+                    (10, 0, 10),    # 洋红
+                    (0, 0, 10),      # 蓝
+                    (0, 10, 10),    # 青
+                    (0, 10, 0),      # 绿
+                    (10, 0, 0),      # 红
+                    (10, 3, 0),     # 橙
+                    (10, 0, 5),    # 玫红
+                    (4, 0, 10),    # 紫
+                    (10, 10, 0),    # 黄
+                    (10, 10, 10),  # 白
                 ]
 
                 start = time.ticks_ms()

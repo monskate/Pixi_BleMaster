@@ -8,7 +8,7 @@
     "wait_light": [50,2],
     "melody": "car.wav",
     "speaker": "im_Pixi.wav",
-    "light": [255, 255, 255, 255, -1],
+    "light": [40, 255, 255, 255, -1],
     "rainbow": 6,
     "fan": [1, 100, 3],
     "shake": [1,2],

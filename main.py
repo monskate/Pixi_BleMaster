@@ -1,4 +1,4 @@
-import time,gc,ujson,esp_uart,os,binascii
+import time,gc,ujson,esp_uart,os
 from machine import Pin,Timer,unique_id
 
 def is_firmware_present(fs_path="/", filename="icrobot_stm32.bin"):
@@ -27,7 +27,7 @@ power = icrobot.mkey
 file_id = None
 low_power_flag = False
 last_uid = None 
-
+last_btuid = None
 #This project was not used.
 def battery_check(timer):
     global low_power_flag
@@ -69,8 +69,8 @@ if __name__ == '__main__':
     battery_timer = Timer(3)
     battery_timer.init(period=60000, mode=Timer.PERIODIC, callback=battery_check)
 
-    #Initialize Bluetooth with the broadcast name as a parameter
-    ble = icrobot.ESP32S3_BLE("ICRobot-"+str(binascii.hexlify(unique_id()).decode('utf-8')[-4:])) 
+    # Set this to the saved name of the peripheral to connect to.
+    ble = icrobot.ESP32S3_BLE() 
 
     #Update custom settings
     icrobot.ble_mode_message.update()
@@ -81,41 +81,57 @@ if __name__ == '__main__':
     if icrobot.color_message.color_flag:
         icrobot.rgb_sensor.set_line_mode(3)
     while True:
-        #Magnetic Programming Data Processing
-        if ble.flag:
-            if len(ble.rx_queue):
-                data = ble.rx_queue.pop(0)
-                icrobot.exe_code.exe(data)
-                ble.send(data)
-        #RFID Data Processing
-        if icrobot.nfc_message.nfc_flag:
-            uid = icrobot.nfc.read_uid()
-            if uid != "no card!" and uid != last_uid:
-                last_uid = uid
-                card = icrobot.nfc.read_block(1)
-                if card != None:
-                    color = int(card[1])
-                    number = int(card[3]) 
-                    if color ==1:
-                        icrobot.exe_code.exe(icrobot.nfc_message.red[number-1])
-                    if color ==2:
-                        icrobot.exe_code.exe(icrobot.nfc_message.yellow[number-1])
-                    if color ==3:
-                        icrobot.exe_code.exe(icrobot.nfc_message.green[number-1])
-                    if color ==4:
-                        icrobot.exe_code.exe(icrobot.nfc_message.blue[number-1])
-        #Color Recognition Data Processing
-        if icrobot.color_message.color_flag:
-            color = icrobot.rgb_sensor.read_line_value(3)
-            if color == 1:
-                icrobot.exe_code.exe(icrobot.color_message.red)
-            if color == 3:
-                icrobot.exe_code.exe(icrobot.color_message.yellow)
-            if color == 4:
-                icrobot.exe_code.exe(icrobot.color_message.green)
-            if color == 6:
-                icrobot.exe_code.exe(icrobot.color_message.blue)
-        time.sleep(0.1)
+        try:
+            if not ble.flag:
+                uid = icrobot.nfc.read_uid()
+                if uid != "no card!" and uid != last_btuid:
+                    last_btuid = uid
+                    n1,n2 = icrobot.nfc.read_block(1)
+                    
+                    name = "ch{:02X}{:02X}".format(n1, n2)
 
+                    print(name)
+                    ble.name = name
+                    
+                ble.process_pending_connection()
+            #Magnetic Programming Data Processing
+            if ble.flag:
+                if len(ble.rx_queue):
+                    data = ble.rx_queue.pop(0)
+                    icrobot.exe_code.exe(data)
+                    ble.send(data)
+            #RFID Data Processing
+            if icrobot.nfc_message.nfc_flag:
+                uid = icrobot.nfc.read_uid()
+                if uid != "no card!" and uid != last_uid:
+                    last_uid = uid
+                    card1,card2 = icrobot.nfc.read_block(1)
+                    if card1 != None and card2 != None:
+                        print(card1)
+                        color = card1
+                        print(card2)
+                        number = int(card2)
+                        if color ==1:
+                            icrobot.exe_code.exe(icrobot.nfc_message.red[number-1])
+                        if color ==2:
+                            icrobot.exe_code.exe(icrobot.nfc_message.yellow[number-1])
+                        if color ==3:
+                            icrobot.exe_code.exe(icrobot.nfc_message.green[number-1])
+                        if color ==4:
+                            icrobot.exe_code.exe(icrobot.nfc_message.blue[number-1])
+            #Color Recognition Data Processing
+            if icrobot.color_message.color_flag:
+                color = icrobot.rgb_sensor.read_line_value(3)
+                if color == 1:
+                    icrobot.exe_code.exe(icrobot.color_message.red)
+                if color == 3:
+                    icrobot.exe_code.exe(icrobot.color_message.yellow)
+                if color == 4:
+                    icrobot.exe_code.exe(icrobot.color_message.green)
+                if color == 6:
+                    icrobot.exe_code.exe(icrobot.color_message.blue)
+            time.sleep(0.1)
+        except Exception as e: 
+            pass
 
 
