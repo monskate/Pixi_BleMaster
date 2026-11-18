@@ -1,27 +1,49 @@
 {
     "nfc_flag": false,
 
-    "red1": "forward",
-    "red2": "forward3",
-    "red3": "backward",
-    "red4": "left",
+    "rock": {
+        "speaker": "I_crashed.wav"
+    },
+    "lion": {
+        "left": [50, 90]
+    },
+    "archair": {
+        "right": [50, 90]
+    },
 
-    "yellow1": "right",
-    "yellow2": "wait",
-    "yellow3": "wait_light",
-    "yellow4": "melody",
+    "school": {
+        "speaker": "I_arrived.wav"
+    },
+    "waterfall": {
+        "forward3": [50, 45]
+    },
+    "forest": {
+        "backward": [50, 15]
+    },
+    "dance floor": {
+        "shake": [1,2]
+    },
+    "mountain": {
+        "forward": [50,15]
+    },
 
-    "green1": "speaker",
-    "green2": "rainbow",
-    "green3": "light",
-    "green4": "fan",
-    "green5": "shake",
-    "green6": "happy",
+    "wait": {
+        "wait": 4
+    },
+    "flashlight": {
+        "wait_light": [50,2]
+    },
 
-    "blue1": "sad",
-    "blue2": "crying",
-    "blue3": "backward",
-    "blue4": "left",
-    "blue5": "right",
-    "blue6": "wait"
+    "rainbow": {
+        "rainbow": 6
+    },
+    "fan": {
+        "fan": [1, 100, 3]
+    },
+    "light": {
+        "light": [40, 255, 255, 255, -1]
+    },
+    "talk": {
+        "speaker": "im_Pixi.wav"
+    }
 }

@@ -62,7 +62,7 @@ if __name__ == '__main__':
     gc.enable()
     power.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=power_callback)
     icrobot.send_nocheck(bytearray([0xaa,0x55,0xfe,0xfe,0xfe,0xfe]))
-    
+
     #Startup sound
     icrobot.speaker.play_music_until_done("/flash/startup.wav")
 
@@ -100,22 +100,21 @@ if __name__ == '__main__':
             #RFID Data Processing
             if icrobot.nfc_message.nfc_flag:
                 uid = icrobot.nfc.read_uid()
+
                 if uid != "no card!" and uid != last_uid:
                     last_uid = uid
-                    card1,card2 = icrobot.nfc.read_block(1)
-                    if card1 != None and card2 != None:
-                        print(card1)
-                        color = card1
-                        print(card2)
+
+                    card1, card2 = icrobot.nfc.read_block(1)
+
+                    if card1 is not None and card2 is not None:
+                        color = int(card1)
                         number = int(card2)
-                        if color ==1:
-                            icrobot.exe_code.exe(icrobot.nfc_message.red[number-1])
-                        if color ==2:
-                            icrobot.exe_code.exe(icrobot.nfc_message.yellow[number-1])
-                        if color ==3:
-                            icrobot.exe_code.exe(icrobot.nfc_message.green[number-1])
-                        if color ==4:
-                            icrobot.exe_code.exe(icrobot.nfc_message.blue[number-1])
+
+                        action_config = icrobot.nfc_message.get_action(color, number)
+
+                        if action_config:
+                            print("NFC:", color, number, action_config)
+                            icrobot.nfc_exe_code.exe(action_config)
             #Color Recognition Data Processing
             if icrobot.color_message.color_flag:
                 color = icrobot.rgb_sensor.read_line_value(3)

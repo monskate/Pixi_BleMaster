@@ -1537,63 +1537,162 @@ class NFC_MESSAGE:
     def __init__(self):
         self.nfc_flag = False
 
-        self.red = [0x01, 0x02, 0x03, 0x04]
-        self.yellow = [0x05, 0x06, 0x07, 0x08]
-        self.green = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E]
-        self.blue = [0x0F, 0x10, 0x03, 0x04, 0x05, 0x06]
-
-        self.command_map = {
-            "forward":      0x01,
-            "forward3":     0x02,
-            "backward":     0x03,
-            "left":         0x04,
-            "right":        0x05,
-            "wait":         0x06,
-            "wait_light":   0x07,
-            "melody":       0x08,
-            "speaker":      0x09,
-            "rainbow":      0x0A,
-            "light":        0x0B,
-            "fan":          0x0C,
-            "shake":        0x0D,
-            "happy":        0x0E,
-            "sad":          0x0F,
-            "crying":       0x10,
+        self.card_map = {
+            1: ["rock", "lion", "archair"],
+            2: ["school", "waterfall", "forest", "dance floor", "mountain"],
+            3: ["wait", "flashlight"],
+            4: ["rainbow", "fan", "light", "talk"]
         }
 
+        self.card_config = {}
+
     def update(self, filename="/nfc_message.txt"):
-        """
-        读取 JSON 文件并更新 NFC 参数
-        """
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 data = ujson.load(f)
-            if "nfc_flag" in data:
-                if isinstance(data["nfc_flag"], bool):
-                    self.nfc_flag = data["nfc_flag"]
-                else:
-                    print("nfc_flag 参数错误:", data["nfc_flag"])
-            colors = {
-                "red": self.red,
-                "yellow": self.yellow,
-                "green": self.green,
-                "blue": self.blue
-            }
-            for color, card_list in colors.items():
-                for i in range(len(card_list)):
-                    key = color + str(i + 1)
-                    if key not in data:
-                        continue
-                    name = data[key]
-                    if name in self.command_map:
-                        card_list[i] = self.command_map[name]
-                    else:
-                        print("未知指令:", name)
+
+            self.nfc_flag = data.get("nfc_flag", False)
+            self.card_config = {}
+
+            for color, names in self.card_map.items():
+                for number, name in enumerate(names, 1):
+                    if name in data:
+                        self.card_config[(color, number)] = data[name]
+
             return 1
+
         except Exception as e:
-            print("读取配置失败:", e)
+            print("error:", e)
             return 0
+
+    def get_action(self, color, number):
+        return self.card_config.get((color, number), None)
 nfc_message = NFC_MESSAGE()
+
+class NFC_EXE_CODE:
+    def exe(self, action_config):
+        if not action_config:
+            return
+        for action, params in action_config.items():
+            if action == "forward":
+                motor.move_forward(params[0], -1, params[1])
+            elif action == "forward3":
+                motor.move_forward(params[0], -1, params[1])
+            elif action == "backward":
+                motor.move_backward(params[0], -1, params[1])
+            elif action == "left":
+                if params[1] == 90:
+                    motor.move_forward(50, -1, 1)
+                    motor.turn_left(params[0], -1, 90)
+                    motor.move_backward(50, -1, 2)
+                else:
+                    motor.turn_left(params[0], -1, params[1])
+            elif action == "right":
+                if params[1] == 90:
+                    motor.move_forward(50, -1, 1)
+                    motor.turn_right(params[0], -1, 90)
+                    motor.move_backward(50, -1, 2)
+                else:
+                    motor.turn_right(params[0], -1, params[1])
+            elif action == "speaker":
+                speaker.play_music_until_done("/" + lang + "/" + params)
+            elif action == "wait":
+                display.show_image([0x0,0x0,0x0,0x0,0x10,0x8,0x8,0x8,0x10,0x0,0x0,0x0,0x0,0x0,0x10,0x8,0x8,0x8,0x10,0x0,0x0,0x0,0x0,0x0],0)
+                start_time = time.ticks_ms()
+                start_time1 = time.ticks_ms()
+                num = 0
+                while time.ticks_diff(time.ticks_ms(), start_time) <= params * 1000:
+                    if time.ticks_diff(time.ticks_ms(), start_time1) > 300:
+                        if num == 0:
+                            taillight.rgb(255,255,0)
+                            num = 1
+                        elif num == 1:
+                            taillight.rgb(0,0,0)
+                            num = 0
+                        start_time1 = time.ticks_ms()
+                    time.sleep_ms(100)
+                power.set_status(255)
+            elif action == "wait_light":
+                if not photosensitive.scan():
+                    speaker.play_music_until_done("/" + lang + "/Sensor.wav")
+                else:
+                    threshold = params[0]
+                    wait_seconds = params[1]
+                    while True:
+                        if photosensitive.value() > threshold:
+                            start = time.ticks_ms()
+                            flag = True
+                            while time.ticks_diff(time.ticks_ms(), start) < wait_seconds * 1000:
+                                if photosensitive.value() <= threshold:
+                                    flag = False
+                                    break
+                                time.sleep_ms(100)
+                            if flag:
+                                break
+                        time.sleep_ms(100)
+            elif action == "rainbow":
+                if not rgb_light.scan():
+                    speaker.play_music_until_done("/"+lang+"/"+"LED.wav")
+                else:
+                    colors = [
+                        (10, 0, 10),    # 洋红
+                        (0, 0, 10),      # 蓝
+                        (0, 10, 10),    # 青
+                        (0, 10, 0),      # 绿
+                        (10, 0, 0),      # 红
+                        (10, 3, 0),     # 橙
+                        (10, 0, 5),    # 玫红
+                        (4, 0, 10),    # 紫
+                        (10, 10, 0),    # 黄
+                        (10, 10, 10),  # 白
+                    ]
+                    start = time.ticks_ms()
+                    index = 0
+                    while time.ticks_diff(time.ticks_ms(), start) < params * 1000:
+                        # 每颗灯使用不同颜色，并随时间滚动
+                        pattern = [
+                            colors[(index + i * 3) % len(colors)]
+                            for i in range(7)
+                        ]
+                        # 7颗灯分别设置颜色
+                        rgb_light.set_color(
+                            *[c for rgb in pattern for c in rgb]
+                        )
+                        # 随机切换节奏，模拟舞厅闪变
+                        time.sleep_ms(90 if index % 3 == 0 else 130)
+                        index += 1
+                    # 结束后关闭全部灯
+                    rgb_light.set_all_colors(0, 0, 0, 0)
+            elif action == "light":
+                if not rgb_light.scan():
+                    speaker.play_music_until_done("/" + lang + "/LED.wav")
+                else:
+                    rgb_light.set_all_colors(
+                        params[1], params[2], params[3], params[0]
+                    )
+                    if params[4] != -1:
+                        time.sleep(params[4])
+                        rgb_light.set_all_colors(0, 0, 0, 0)
+            elif action == "fan":
+                if not fan.scan():
+                    speaker.play_music_until_done("/" + lang + "/Propeller.wav")
+                else:
+                    fan.set_speed(params[1])
+                    fan.set_mode(params[0])
+                    if params[2] != -1:
+                        time.sleep(params[2])
+                        fan.set_mode(0)
+            elif action == "shake":
+                start = time.ticks_ms()
+                while time.ticks_diff(time.ticks_ms(), start) <= params[1] * 1000:
+                    motor.turn_left(100, -1, -1)
+                    time.sleep(0.1)
+                    motor.turn_right(100, -1, -1)
+                    time.sleep(0.2)
+                    motor.turn_left(100, -1, -1)
+                    time.sleep(0.1)
+                motor.move_stop()
+nfc_exe_code = NFC_EXE_CODE()     
 
 #Custom action modification for color recognition mode
 class COLOR_MESSAGE:
